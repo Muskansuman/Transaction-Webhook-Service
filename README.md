@@ -244,6 +244,7 @@ A missing field returns `422`. An unknown `transaction_id` returns `404`. If Pos
 The optional page runs on your own computer and calls the public API:
 
 ```bash
+unzip frontend.zip
 cd frontend
 npm install
 npm run dev
