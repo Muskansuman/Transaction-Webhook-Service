@@ -1,11 +1,15 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.config import cors_origins
 from app.db import get_transaction, init_db, insert_if_new, iso_z, utc_now
 from app.schemas import TransactionResponse, WebhookRequest
 from app.worker import recover_loop, schedule, stop_processing
@@ -32,6 +36,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Transaction Webhook Service", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 
 @app.get("/")
@@ -75,3 +85,8 @@ async def get_transaction_status(transaction_id: str):
             processed_at=iso_z(row.processed_at),
         )
     ]
+
+
+_ui_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _ui_dir.is_dir():
+    app.mount("/ui", StaticFiles(directory=_ui_dir, html=True), name="ui")

@@ -2,6 +2,8 @@
 
 A Python service that accepts payment-processor webhooks, returns **202 Accepted** in under 500 ms, and finishes each transaction in the background.
 
+Public API: `http://130.210.26.235:8000`
+
 The database row is the queue. A unique `transaction_id` prevents duplicate processing, and any row still marked `PROCESSING` is resumed after a restart.
 
 ## Architecture
@@ -238,4 +240,138 @@ pytest
 ```
 
 A missing field returns `422`. An unknown `transaction_id` returns `404`. If Postgres is unavailable, the webhook returns `503` and does not acknowledge work that was not stored.
+
+The optional page runs on your own computer and calls the public API:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173/ui/`. Frontend checks live in `frontend/src/form.test.js` (`npm test` inside `frontend`).
+
+## Deploy on Oracle Cloud
+
+One Ubuntu virtual machine runs the API and PostgreSQL with Docker Compose. Postgres data stays in a volume and is not opened to the internet. Keep a single API container, because the background scheduler lives in that process.
+
+This deployment is `http://130.210.26.235:8000`.
+
+### 1. Sign in
+
+Open [https://cloud.oracle.com](https://cloud.oracle.com) and sign in to the tenancy. The instance is created under **Compute → Instances → Create instance**.
+
+### 2. Image and shape
+
+- **Image:** Canonical Ubuntu 22.04 or 24.04.
+- **Shape:** `VM.Standard.E2.1.Micro` (Always Free: 1 OCPU, 1 GB memory). This is the shape used here. `VM.Standard.A1.Flex` with 1 OCPU and 6 GB is easier to build on when that capacity is free. On the 1 GB shape, add swap before the Docker build or the build can be killed.
+
+### 3. Networking
+
+Under **Primary VNIC**:
+
+- Leave the VNIC name blank.
+- Choose **Create new virtual cloud network**.
+- Create a new public subnet.
+- Turn on **Assign a public IPv4 address**.
+
+After the work request **Create instance** succeeds, open the instance **Details** page and copy **Public IP address**. It looks like `130.210.26.235`. The address `192.168.x.x` on the same page is private and cannot be used from your computer.
+
+### 4. SSH key
+
+On the create-instance form, choose **Generate a key pair for me** and download both files. This deployment uses `~/Downloads/ssh-key-2026-11-02.key`.
+
+Log in with the private key, the file that does not end in `.pub`. The username for the Ubuntu image is `ubuntu`.
+
+```bash
+chmod 600 ~/Downloads/ssh-key-2026-11-02.key
+ssh -i ~/Downloads/ssh-key-2026-11-02.key ubuntu@130.210.26.235
+```
+
+`ssh-key-2026-11-02.key.pub` is only the public half. It cannot open a shell.
+
+### 5. Open port 8000
+
+The API answers on the VM before this step, but the public address stays closed until both of these are done.
+
+In the console: menu → **Networking** → **Virtual cloud networks** → the instance VCN → **Subnets** → the public subnet → **Security lists** → the default security list → **Add Ingress Rules**:
+
+| Field | Value |
+| --- | --- |
+| Stateless | off |
+| Source type | CIDR |
+| Source CIDR | `0.0.0.0/0` |
+| IP protocol | TCP |
+| Source port range | empty |
+| Destination port range | `8000` |
+
+Leave port 5432 closed. Port 22 is already allowed for SSH.
+
+On the VM, Ubuntu also filters the port:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
+sudo apt-get update
+sudo apt-get install -y iptables-persistent
+sudo netfilter-persistent save
+```
+
+### 6. Instance setup
+
+Still on the VM, install Docker and add swap for the 1 GB shape:
+
+```bash
+sudo apt-get install -y docker.io docker-compose-v2
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo usermod -aG docker ubuntu
+exit
+```
+
+Log in again so the `docker` group applies. From your own computer, copy the project:
+
+```bash
+rsync -av \
+  --exclude .venv --exclude __pycache__ --exclude .pytest_cache \
+  --exclude .git --exclude .env --exclude frontend/node_modules \
+  -e "ssh -i ~/Downloads/ssh-key-2026-11-02.key" \
+  ~/dsm/ ubuntu@130.210.26.235:~/dsm/
+```
+
+On the VM:
+
+```bash
+cd ~/dsm
+cp .env.oci.example .env
+```
+
+Edit `.env` and set `POSTGRES_PASSWORD` to a long value made of letters and numbers only. Characters such as `@` or `:` break `DATABASE_URL`. Then:
+
+```bash
+docker compose -f docker-compose.oci.yml up -d --build
+docker compose -f docker-compose.oci.yml ps
+```
+
+`db` should be healthy and `api` running. Confirm from your own computer:
+
+```bash
+curl http://130.210.26.235:8000/
+
+curl -i -X POST http://130.210.26.235:8000/v1/webhooks/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "transaction_id": "txn_oci_001",
+    "source_account": "acc_user_789",
+    "destination_account": "acc_merchant_456",
+    "amount": 1500,
+    "currency": "INR"
+  }'
+
+curl http://130.210.26.235:8000/v1/transactions/txn_oci_001
+```
+
+The first status call shows `PROCESSING`. About 30 seconds later the same call shows `PROCESSED`. A curl from the VM to its own public IP can hang even when this works. Test from your computer.
 

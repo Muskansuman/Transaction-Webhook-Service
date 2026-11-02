@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 
 class WebhookRequest(BaseModel):
@@ -28,8 +28,6 @@ class WebhookRequest(BaseModel):
 
 
 class TransactionResponse(BaseModel):
-    model_config = ConfigDict()
-
     transaction_id: str
     source_account: str
     destination_account: str
