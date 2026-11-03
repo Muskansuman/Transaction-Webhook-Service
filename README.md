@@ -2,8 +2,8 @@
 
 A Python service that accepts payment-processor webhooks, returns **202 Accepted** in under 500 ms, and finishes each transaction in the background.
 
-Public API: `http://130.210.26.235:8000`  
-Public UI: `http://130.210.26.235:8000/ui/`
+Public API[http://130.210.26.235:8000/]: `http://130.210.26.235:8000`  
+Public UI[http://130.210.26.235:8000/ui/]: `http://130.210.26.235:8000/ui/`
 
 The database row is the queue. A unique `transaction_id` prevents duplicate processing, and any row still marked `PROCESSING` is resumed after a restart.
 
