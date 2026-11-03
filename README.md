@@ -249,6 +249,7 @@ A missing field returns `422`. An unknown `transaction_id` returns `404`. If Pos
 The deployed UI is served by the API container at `/ui/`. Open `http://130.210.26.235:8000/ui/` after the OCI containers are up. To work on the page locally instead:
 
 ```bash
+unzip frontend.zip
 cd frontend
 npm install
 npm run dev
