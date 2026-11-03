@@ -57,6 +57,7 @@ def test_webhook_is_processed_after_the_delay(client: TestClient):
     assert response.status_code == 202
     assert elapsed < 0.5
     assert response.json() == {"status": "accepted"}
+    assert response.headers["X-Webhook-Result"] == "created"
 
     pending = client.get("/v1/transactions/txn_abc123def456")
     assert pending.status_code == 200
@@ -84,6 +85,7 @@ def test_duplicate_webhooks_create_one_transaction(client: TestClient):
     changed["destination_account"] = "acc_other"
     again = client.post("/v1/webhooks/transactions", json=changed)
     assert again.status_code == 202
+    assert again.headers["X-Webhook-Result"] == "duplicate"
 
     current = client.get("/v1/transactions/txn_duplicate").json()[0]
     assert current["amount"] == 150.5

@@ -41,6 +41,7 @@ app.add_middleware(
     allow_origins=cors_origins(),
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
+    expose_headers=["X-Webhook-Result"],
 )
 
 
@@ -61,7 +62,11 @@ async def receive_webhook(payload: WebhookRequest):
         logger.info("accepted transaction %s", payload.transaction_id)
     else:
         logger.info("duplicate transaction %s ignored", payload.transaction_id)
-    return JSONResponse(status_code=202, content={"status": "accepted"})
+    return JSONResponse(
+        status_code=202,
+        content={"status": "accepted"},
+        headers={"X-Webhook-Result": "created" if created else "duplicate"},
+    )
 
 
 @app.get("/v1/transactions/{transaction_id}", response_model=list[TransactionResponse])

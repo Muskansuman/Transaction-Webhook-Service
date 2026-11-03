@@ -2,7 +2,8 @@
 
 A Python service that accepts payment-processor webhooks, returns **202 Accepted** in under 500 ms, and finishes each transaction in the background.
 
-Public API: `http://130.210.26.235:8000`
+Public API: `http://130.210.26.235:8000`  
+Public UI: `http://130.210.26.235:8000/ui/`
 
 The database row is the queue. A unique `transaction_id` prevents duplicate processing, and any row still marked `PROCESSING` is resumed after a restart.
 
@@ -179,6 +180,8 @@ stateDiagram-v2
 - **No duplicate processing.** The unique key, not an in-memory set, decides whether work starts.
 - **One service to deploy.** PostgreSQL is both the store and the queue, so the app does not need Redis, Celery, or Kafka for this workload.
 
+
+
 ## Run
 
 Requires Docker.
@@ -229,6 +232,8 @@ export PROCESSING_DELAY_SECONDS=30
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+
+
 ## Test
 
 The tests use the same Postgres database and a short processing delay.
@@ -241,10 +246,9 @@ pytest
 
 A missing field returns `422`. An unknown `transaction_id` returns `404`. If Postgres is unavailable, the webhook returns `503` and does not acknowledge work that was not stored.
 
-The optional page runs on your own computer and calls the public API:
+The deployed UI is served by the API container at `/ui/`. Open `http://130.210.26.235:8000/ui/` after the OCI containers are up. To work on the page locally instead:
 
 ```bash
-unzip frontend.zip
 cd frontend
 npm install
 npm run dev
@@ -256,7 +260,12 @@ Open `http://127.0.0.1:5173/ui/`. Frontend checks live in `frontend/src/form.tes
 
 One Ubuntu virtual machine runs the API and PostgreSQL with Docker Compose. Postgres data stays in a volume and is not opened to the internet. Keep a single API container, because the background scheduler lives in that process.
 
-This deployment is `http://130.210.26.235:8000`.
+This deployment is:
+
+- API: `http://130.210.26.235:8000/`
+- UI: `http://130.210.26.235:8000/ui/`
+
+`docker-compose.oci.yml` sets `restart: unless-stopped` on `api` and `db`, so both come back after a VM reboot or a container crash. Use `up -d` so they stay in the background. Do not run `docker compose down` unless you intend to stop the public site.
 
 ### 1. Sign in
 
@@ -266,6 +275,8 @@ Open [https://cloud.oracle.com](https://cloud.oracle.com) and sign in to the ten
 
 - **Image:** Canonical Ubuntu 22.04 or 24.04.
 - **Shape:** `VM.Standard.E2.1.Micro` (Always Free: 1 OCPU, 1 GB memory). This is the shape used here. `VM.Standard.A1.Flex` with 1 OCPU and 6 GB is easier to build on when that capacity is free. On the 1 GB shape, add swap before the Docker build or the build can be killed.
+
+
 
 ### 3. Networking
 
@@ -297,14 +308,16 @@ The API answers on the VM before this step, but the public address stays closed 
 
 In the console: menu → **Networking** → **Virtual cloud networks** → the instance VCN → **Subnets** → the public subnet → **Security lists** → the default security list → **Add Ingress Rules**:
 
-| Field | Value |
-| --- | --- |
-| Stateless | off |
-| Source type | CIDR |
-| Source CIDR | `0.0.0.0/0` |
-| IP protocol | TCP |
-| Source port range | empty |
-| Destination port range | `8000` |
+
+| Field                  | Value       |
+| ---------------------- | ----------- |
+| Stateless              | off         |
+| Source type            | CIDR        |
+| Source CIDR            | `0.0.0.0/0` |
+| IP protocol            | TCP         |
+| Source port range      | empty       |
+| Destination port range | `8000`      |
+
 
 Leave port 5432 closed. Port 22 is already allowed for SSH.
 
@@ -316,6 +329,8 @@ sudo apt-get update
 sudo apt-get install -y iptables-persistent
 sudo netfilter-persistent save
 ```
+
+
 
 ### 6. Instance setup
 
@@ -332,12 +347,18 @@ sudo usermod -aG docker ubuntu
 exit
 ```
 
-Log in again so the `docker` group applies. From your own computer, copy the project:
+Log in again so the `docker` group applies. On your laptop, build the UI, then copy the project (include `frontend/dist`):
 
 ```bash
+cd ~/dsm/frontend
+rm -f .env
+npm install
+npm run build
+
 rsync -av \
   --exclude .venv --exclude __pycache__ --exclude .pytest_cache \
   --exclude .git --exclude .env --exclude frontend/node_modules \
+  --exclude frontend/.env \
   -e "ssh -i ~/Downloads/ssh-key-2026-11-02.key" \
   ~/dsm/ ubuntu@130.210.26.235:~/dsm/
 ```
@@ -351,12 +372,60 @@ cp .env.oci.example .env
 
 Edit `.env` and set `POSTGRES_PASSWORD` to a long value made of letters and numbers only. Characters such as `@` or `:` break `DATABASE_URL`. Then:
 
+The UI is copied into the API image from `frontend/dist`. Do not set `VITE_API_URL` when building the UI, or the page will call localhost and show **Service unavailable**.
+
+Start or refresh the containers on the VM. `-d` keeps them running after you disconnect:
+
 ```bash
+cd ~/dsm
 docker compose -f docker-compose.oci.yml up -d --build
 docker compose -f docker-compose.oci.yml ps
 ```
 
-`db` should be healthy and `api` running. Confirm from your own computer:
+`db` should be healthy and `api` running. Open from your computer:
+
+- Health: `http://130.210.26.235:8000/`
+- UI: `http://130.210.26.235:8000/ui/`
+
+If the UI looks old, hard-refresh with Ctrl+Shift+R.
+
+### 7. Update a running VM
+
+Containers stay up. Postgres data stays in the `pgdata` volume. Copy the project, rebuild the UI, then recreate only what changed:
+
+```bash
+# on your laptop
+cd ~/dsm/frontend
+rm -f .env
+npm run build
+
+rsync -av \
+  --exclude .venv --exclude __pycache__ --exclude .pytest_cache \
+  --exclude .git --exclude .env --exclude frontend/node_modules \
+  --exclude frontend/.env \
+  -e "ssh -i ~/Downloads/ssh-key-2026-11-02.key" \
+  ~/dsm/ ubuntu@130.210.26.235:~/dsm/
+```
+
+```bash
+# on the VM
+cd ~/dsm
+docker compose -f docker-compose.oci.yml up -d --build
+docker compose -f docker-compose.oci.yml ps
+```
+
+`up -d --build` rebuilds the API image (including `/ui/`) and replaces that container. The database container is left running.
+
+Useful checks:
+
+```bash
+docker compose -f docker-compose.oci.yml ps
+docker compose -f docker-compose.oci.yml logs -f api
+```
+
+### 8. Confirm the public API
+
+Confirm from your own computer:
 
 ```bash
 curl http://130.210.26.235:8000/
@@ -375,4 +444,3 @@ curl http://130.210.26.235:8000/v1/transactions/txn_oci_001
 ```
 
 The first status call shows `PROCESSING`. About 30 seconds later the same call shows `PROCESSED`. A curl from the VM to its own public IP can hang even when this works. Test from your computer.
-

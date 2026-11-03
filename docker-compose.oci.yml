@@ -20,7 +20,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/transactions
       PROCESSING_DELAY_SECONDS: "30"
       RECOVERY_INTERVAL_SECONDS: "5"
-      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      CORS_ORIGINS: "*"
     ports:
       - "8000:8000"
     depends_on:

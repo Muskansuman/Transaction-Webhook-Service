@@ -57,7 +57,6 @@ def iso_z(value: datetime | None) -> str | None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-
 def insert_if_new(payload: WebhookRequest) -> bool:
     statement = (
         pg_insert(Transaction)
@@ -108,3 +107,4 @@ def clear_transactions() -> None:
     with Session(get_engine()) as session:
         session.execute(Transaction.__table__.delete())
         session.commit()
+

@@ -183,7 +183,6 @@ def test_storage_failure_does_not_acknowledge_the_webhook(client, monkeypatch):
     assert response.status_code == 503
     assert get_transaction("txn_unstored") is None
 
-
 def test_whole_amounts_are_integers_and_max_length_id_is_kept(client):
     transaction_id = "t" * 128
     response = client.post(
@@ -202,3 +201,4 @@ def test_whole_amounts_are_integers_and_max_length_id_is_kept(client):
     assert isinstance(row["amount"], int)
     assert row["currency"] == "EUR"
     assert len(row["source_account"]) == 128
+
